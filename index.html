@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IndexedDB CRUD System</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .card {
+      border: 1px solid #ccc;
+      padding: 20px;
+      margin: 10px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    table, th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+    }
+    button {
+      margin: 5px;
+    }
+    .hidden {
+      display: none;
+    }
+    #footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background-color: #f1f1f1;
+      padding: 10px;
+      text-align: center;
+      border-top: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>IndexedDB CRUD System</h1>
+  <div class="card">
+    <h3>Manage Databases</h3>
+    <input type="text" id="dbName" placeholder="Database Name">
+    <button onclick="createDatabase()">Create Database</button>
+    <button onclick="deleteDatabase()">Delete Database</button>
+    <button onclick="loadDatabases()">Load Databases</button>
+    <div id="databaseTable"></div>
+  </div>
+  <div class="card hidden" id="backButtonContainer">
+    <button onclick="goBack()">Back</button>
+  </div>
+</div>
+
+<div id="footer">Ready</div>
+
+<script>
+  let previousContext = [];
+
+  function setLoading(message) {
+    document.getElementById("footer").innerText = `Loading: ${message}`;
+  }
+
+  function clearLoading() {
+    document.getElementById("footer").innerText = "Ready";
+  }
+
+  function createDatabase() {
+    setLoading("Creating Database...");
+    const dbName = document.getElementById("dbName").value;
+    const request = indexedDB.open(dbName, 1);
+    request.onupgradeneeded = (event) => {
+      console.log(`Database ${dbName} created successfully`);
+    };
+    request.onsuccess = () => {
+      console.log(`Database ${dbName} opened successfully`);
+      loadDatabases();
+      clearLoading();
+    };
+    request.onerror = (event) => {
+      console.error(`Failed to create database ${dbName}:`, event.target.error);
+      clearLoading();
+    };
+  }
+
+  function deleteDatabase() {
+    setLoading("Deleting Database...");
+    const dbName = document.getElementById("dbName").value;
+    const request = indexedDB.deleteDatabase(dbName);
+    request.onsuccess = () => {
+      console.log(`Database ${dbName} deleted successfully`);
+      loadDatabases();
+      clearLoading();
+    };
+    request.onerror = (event) => {
+      console.error(`Failed to delete database ${dbName}:`, event.target.error);
+      clearLoading();
+    };
+  }
+
+  function loadDatabases() {
+    setLoading("Loading Databases...");
+    let databases = indexedDB.databases();
+    databases.then(dbList => {
+      let output = '<table><tr><th>Database Name</th><th>Actions</th></tr>';
+      dbList.forEach(db => {
+        output += `<tr><td>${db.name}</td><td>
+                    <button onclick="loadObjectStores('${db.name}')">View Stores</button>
+                    <button onclick="deleteDatabase('${db.name}')">Delete</button>
+                  </td></tr>`;
+      });
+      output += '</table>';
+      document.getElementById("databaseTable").innerHTML = output;
+      document.getElementById("backButtonContainer").classList.add("hidden");
+      clearLoading();
+    });
+  }
+
+  function loadObjectStores(dbName) {
+    setLoading(`Loading Stores for ${dbName}...`);
+    previousContext.push(() => loadDatabases());
+    document.getElementById("backButtonContainer").classList.remove("hidden");
+
+    const request = indexedDB.open(dbName);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      let output = `<h3>Object Stores in Database: ${dbName}</h3>
+                    <input type="text" id="storeName" placeholder="Object Store Name">
+                    <button onclick="createObjectStore('${dbName}')">Create Object Store</button>
+                    <button onclick="loadObjectStores('${dbName}')">Load Stores</button>
+                    <table><tr><th>Store Name</th><th>Actions</th></tr>`;
+      for (let i = 0; i < db.objectStoreNames.length; i++) {
+        const storeName = db.objectStoreNames[i];
+        output += `<tr><td>${storeName}</td><td>
+                    <button onclick="loadEntries('${dbName}', '${storeName}')">View Entries</button>
+                    <button onclick="deleteObjectStore('${dbName}', '${storeName}')">Delete</button>
+                  </td></tr>`;
+      }
+      output += '</table>';
+      document.getElementById("databaseTable").innerHTML = output;
+      clearLoading();
+    };
+  }
+
+  function createObjectStore(dbName) {
+    setLoading(`Creating Object Store in ${dbName}...`);
+    const storeName = document.getElementById("storeName").value;
+    const request = indexedDB.open(dbName, new Date().getTime()); // Force version change to add store
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.createObjectStore(storeName, { keyPath: "id", autoIncrement: true });
+        console.log(`Object store ${storeName} created successfully`);
+      }
+    };
+    request.onsuccess = () => {
+      clearLoading();
+      loadObjectStores(dbName);
+    };
+    request.onerror = (event) => {
+      console.error(`Failed to create object store ${storeName}:`, event.target.error);
+      clearLoading();
+    };
+  }
+
+  function loadEntries(dbName, storeName) {
+    setLoading(`Loading Entries for ${storeName}...`);
+    previousContext.push(() => loadObjectStores(dbName));
+    document.getElementById("backButtonContainer").classList.remove("hidden");
+
+    const request = indexedDB.open(dbName);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      const transaction = db.transaction(storeName, "readonly");
+      const store = transaction.objectStore(storeName);
+      const entries = [];
+
+      store.openCursor().onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          entries.push(cursor.value);
+          cursor.continue();
+        } else {
+          let output = `<h3>Entries in Store: ${storeName}</h3>
+                        <input type="text" id="entryKey" placeholder="Entry Key">
+                        <input type="text" id="entryValue" placeholder="Entry Value">
+                        <button onclick="addEntry('${dbName}', '${storeName}')">Add Entry</button>
+                        <button onclick="loadEntries('${dbName}', '${storeName}')">Load Entries</button>
+                        <table><tr><th>Key</th><th>Value</th><th>Actions</th></tr>`;
+          entries.forEach(entry => {
+            output += `<tr><td><input type="text" id="entryKey_${entry.id}" value="${entry.id}" disabled></td>
+                        <td><input type="text" id="entryValue_${entry.id}" value="${entry.value}"></td>
+                        <td>
+                          <button onclick="openEditScreen('${dbName}', '${storeName}', '${entry.id}', '${entry.value}')">Edit</button>
+                          <button onclick="deleteEntry('${dbName}', '${storeName}', '${entry.id}')">Delete</button>
+                        </td></tr>`;
+          });
+          output += '</table>';
+          document.getElementById("databaseTable").innerHTML = output;
+          clearLoading();
+        }
+      };
+    };
+  }
+
+  function addEntry(dbName, storeName) {
+    setLoading(`Adding Entry to ${storeName}...`);
+    const key = document.getElementById("entryKey").value;
+    const value = document.getElementById("entryValue").value;
+
+    const request = indexedDB.open(dbName);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      const transaction = db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+      store.put({ id: key, value: value });
+      transaction.oncomplete = () => {
+        console.log(`Entry added to store ${storeName}`);
+        loadEntries(dbName, storeName);
+        clearLoading();
+      };
+      transaction.onerror = (event) => {
+        console.error(`Failed to add entry to store ${storeName}:`, event.target.error);
+        clearLoading();
+      };
+    };
+  }
+
+  function deleteObjectStore(dbName, storeName) {
+    setLoading(`Deleting Object Store ${storeName}...`);
+    const request = indexedDB.open(dbName, new Date().getTime()); // Force version change to delete store
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (db.objectStoreNames.contains(storeName)) {
+        db.deleteObjectStore(storeName);
+        console.log(`Object store ${storeName} deleted successfully`);
+        loadObjectStores(dbName);
+      }
+    };
+    request.onsuccess = () => {
+      clearLoading();
+    };
+    request.onerror = (event) => {
+      console.error(`Failed to delete object store ${storeName}:`, event.target.error);
+      clearLoading();
+    };
+  }
+
+  function deleteEntry(dbName, storeName, key) {
+    setLoading(`Deleting Entry with key ${key}...`);
+    const request = indexedDB.open(dbName);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      const transaction = db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+      store.delete(key);
+      transaction.oncomplete = () => {
+        console.log(`Entry with key ${key} deleted successfully`);
+        loadEntries(dbName, storeName);
+        clearLoading();
+      };
+      transaction.onerror = (event) => {
+        console.error(`Failed to delete entry with key ${key}:`, event.target.error);
+        clearLoading();
+      };
+    };
+  }
+
+  function openEditScreen(dbName, storeName, key, value) {
+    let editScreen = `<h3>Edit Entry in Store: ${storeName}</h3>
+                      <input type="text" id="editEntryKey" value="${key}" disabled><br>
+                      <input type="text" id="editEntryValue" value="${value}"><br>
+                      <button onclick="editEntry('${dbName}', '${storeName}', '${key}', document.getElementById('editEntryValue').value)">Save</button>
+                      <button onclick="loadEntries('${dbName}', '${storeName}')">Cancel</button>`;
+    document.getElementById("databaseTable").innerHTML = editScreen;
+  }
+
+  function editEntry(dbName, storeName, key, value) {
+    setLoading(`Editing Entry with key ${key}...`);
+    const request = indexedDB.open(dbName);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      const transaction = db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+      store.put({ id: key, value: value });
+      transaction.oncomplete = () => {
+        console.log(`Entry with key ${key} updated successfully`);
+        loadEntries(dbName, storeName);
+        clearLoading();
+      };
+      transaction.onerror = (event) => {
+        console.error(`Failed to update entry with key ${key}:`, event.target.error);
+        clearLoading();
+      };
+    };
+  }
+
+  function goBack() {
+    if (previousContext.length > 0) {
+      setLoading("Going Back...");
+      const lastContext = previousContext.pop();
+      lastContext();
+      clearLoading();
+    }
+  }
+</script>
+</body>
+</html>
