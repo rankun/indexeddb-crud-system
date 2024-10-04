@@ -16,15 +16,10 @@ This project is a complete CRUD (Create, Read, Update, Delete) system for managi
 
 1. Clone the repository:
    ```sh
-   git clone https://github.com/rankun/ndexeddb-crud-system.git
+   git clone https://github.com/rankun/indexeddb-crud-system.git
    ```
 
-2. Navigate to the project directory:
-   ```sh
-   cd indexeddb-crud-system
-   ```
-
-3. Open `index.html` in your browser to start the application.
+2. Open `index.html` in your browser to start the application.
 
 ## Usage
 
